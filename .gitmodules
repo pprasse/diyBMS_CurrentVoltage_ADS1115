@@ -1,0 +1,3 @@
+[submodule "code/lib/ADS1115-Lite"]
+	path = code/lib/ADS1115-Lite
+	url = git@github.com:pprasse/ADS1115-Lite.git

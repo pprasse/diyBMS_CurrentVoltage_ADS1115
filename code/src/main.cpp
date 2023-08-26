@@ -65,13 +65,13 @@ FastCRC16 CRC16;
 
 #include "EmbeddedFiles_Defines.h"
 
+#ifndef SERIALDEBUG
 #include "SimpleModbusSlave.h"
+#endif
 
-typedef union
-{
-  double dblvalue;
-  uint16_t word[2];
-} DoubleUnionType;
+#ifdef SERIALDEBUG
+uint32_t lastDebugOutput = 0;
+#endif
 
 const uint16_t loop_delay_ms = 2000;
 
@@ -117,14 +117,14 @@ uint16_t CalculateSOC()
     return 0;
   }
 
+  // Add a hard upper limit 655.0%
+  if (answer > 655.0)
+  {
+    answer = 655.0;
+  }
+
   // Store result as fixed point decimal
   uint16_t SOC = 100 * answer;
-
-  // Add a hard upper limit 999.99%
-  if (SOC > 99999)
-  {
-    SOC = 99999;
-  }
 
   return SOC;
 }
@@ -224,6 +224,10 @@ void WatchdogTriggered()
 // pattern is a 32bit pattern to "play" on the RED LED to indicate failure
 void __attribute__((noreturn)) blinkPattern(uint32_t pattern)
 {
+  #ifdef SERIALDEBUG
+  Serial.print("blinkPattern=");
+  Serial.println(pattern);
+  #endif
 
   // Show the error 4 times
   for (size_t x = 0; x < 4; x++)
@@ -486,6 +490,11 @@ void setup()
   }
 
   ConfigurePorts();
+
+
+  // Serial uses PB2/PB3 and PB0 for XDIR
+  Serial.begin(ModBusBaudRate, MODBUSSERIALCONFIG);
+
   RedLED(false);
   GreenLED(false);
   EnableWatchdog();
@@ -539,6 +548,18 @@ void setup()
 
   setBitFlags(registers.bitflags);
 
+
+  DEBUG_PRINTLN("NORMAL_BOOTUP");
+  if( wdt_triggered )
+  {
+    DEBUG_PRINTLN("wdt_triggered");
+  }
+  else
+  {
+    DEBUG_PRINTLN("NOT wdt_triggered");
+  }
+
+
   // Flash LED to indicate normal boot up
   for (size_t i = 0; i < 6; i++)
   {
@@ -562,18 +583,22 @@ void setup()
   PORTB.PIN0CTRL = 0;
   #endif
 
-  ads1115_setup();
-
-  // Serial uses PB2/PB3 and PB0 for XDIR
-  Serial.begin(ModBusBaudRate, MODBUSSERIALCONFIG);
+  uint32_t status = ads1115_setup();
+  DEBUG_PRINT("ads1115_setup result=");
+  DEBUG_PRINTLN(status);
+  if( status )
+  {
+    blinkPattern(status);
+    return;
+  }
 
   wdt_triggered = false;
 
-  #ifndef SERIALDEBUG
+#ifndef SERIALDEBUG
   // 0x01= Enables RS-485 mode with control of an external line driver through a dedicated Transmit Enable (TE) pin.
   USART0.CTRLA |= USART_RS485_EXT_gc;
   modbus_configure(&Serial, ModBusBaudRate);
-  #endif
+#endif
 
 /*
   // Default SOC% at 60%
@@ -629,10 +654,6 @@ double TemperatureLimit()
   return registers.temp_limit;
 }
 
-// Calculated current output in Amperes.
-// In the way this circuit is designed, NEGATIVE current indicates DISCHARGE of the battery
-// POSITIVE current indicates CHARGE of the battery
-
 ISR(PORTB_PORT_vect)
 {
   uint8_t flags = PORTB.INTFLAGS;
@@ -640,7 +661,6 @@ ISR(PORTB_PORT_vect)
 
   if (flags && PIN1_bm)
   {
-    RedLED(true);
     ads1115_isr();
   }
 }
@@ -651,7 +671,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
     static DoubleUnionType v;
     static DoubleUnionType c;
     static DoubleUnionType p;
-    static DoubleUnionType shuntv;
+//    static DoubleUnionType shuntv;
 
     static DoubleUnionType BusOverVolt;
     static DoubleUnionType BusUnderVolt;
@@ -669,6 +689,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // Voltage
           v.dblvalue = BusVoltage();
+          DEBUGKV("(0) Busvoltage=", v.dblvalue);
           *result =v.word[0];
           break;
         }
@@ -684,6 +705,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // Current
           c.dblvalue = Current();
+          DEBUGKV("(2) Current=", c.dblvalue);
           *result =c.word[0];
           break;
         }
@@ -699,6 +721,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // milliamphour_out
           *result =(uint16_t)((milliamphour_out - milliamphour_out_offset) >> 16);
+          DEBUGKV("(4) MilliAmpHourOut=", milliamphour_out - milliamphour_out_offset);
           break;
         }
 
@@ -713,6 +736,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // milliamphour_in
           *result =(uint16_t)((milliamphour_in - milliamphour_in_offset) >> 16);
+          DEBUGKV("(6) MilliAmpHourIn=", milliamphour_in - milliamphour_in_offset);
           break;
         }
 
@@ -727,18 +751,21 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // temperature
           *result =(int16_t)AttinyTemperature();
+          DEBUGKV("(8) Temperature=", *result);
           break;
         }
         case 9:
         {
           // Various flags
           *result =bitFlags();
+          DEBUGKV("(9) BitFlags=", *result);
           break;
         }
         case 10:
         {
           // Power
           p.dblvalue = Power();
+          DEBUGKV("(10) Power=", p.dblvalue);
           *result =p.word[0];
           break;
         }
@@ -752,6 +779,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // daily milliamphour_out
           *result =(uint16_t)(daily_milliamphour_out >> 16);
+          DEBUGKV("(12) dailyMilliampHourOut=", daily_milliamphour_out);
           break;
         }
         case 13:
@@ -764,6 +792,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // daily milliamphour_out
           *result =(uint16_t)(daily_milliamphour_in >> 16);
+          DEBUGKV("(14) dailyMilliampHourIn=", daily_milliamphour_in);
           break;
         }
         case 15:
@@ -776,6 +805,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // Ohms to milliohm
           copy_shunt_resistance.dblvalue = 1000 * registers.RSHUNT;
+          DEBUGKV("(16) Milliohm shunt=", copy_shunt_resistance.dblvalue);
           *result =copy_shunt_resistance.word[0];
           break;
         }
@@ -788,11 +818,13 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         case 18:
         {
           *result =registers.shunt_max_current;
+          DEBUGKV("(18) ShuntMaxCurrent=", *result);
           break;
         }
         case 19:
         {
           *result =registers.shunt_millivolt;
+          DEBUGKV("(19) ShuntMillivolt=", *result);
           break;
         }
 
@@ -800,6 +832,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           //|40021|Battery Capacity (ah)  (unsigned int16)
           *result =registers.batterycapacity_amphour;
+          DEBUGKV("(20) CapacityAmpHour=", *result);
           break;
         }
         case 21:
@@ -807,6 +840,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           //|40022|Fully charged voltage (4 byte double)
           copy_fully_charged_voltage.dblvalue = registers.fully_charged_voltage;
           *result =copy_fully_charged_voltage.word[0];
+          DEBUGKV("(21) FullyChargedVoltage=", copy_fully_charged_voltage.dblvalue);
           break;
         }
         case 22:
@@ -820,6 +854,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           //|40024|Tail current (Amps) (4 byte double)
           copy_tail_current_amps.dblvalue = registers.tail_current_amps;
           *result =copy_tail_current_amps.word[0];
+          DEBUGKV("(23) TailCurrentAmps=", copy_tail_current_amps.dblvalue);
           break;
         }
         case 24:
@@ -832,30 +867,35 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           //|40026|Charge efficiency factor % (unsigned int16) (scale x100 eg. 10000 = 100.00%, 9561 = 95.61%)
           *result =(uint16_t)(registers.charge_efficiency_factor * 100.0);
+          DEBUGKV("(25) ChargeEfficiencyFactor=", *result);
           break;
         }
         case 26:
         {
           //|40027|State of charge % (unsigned int16) (scale x100 eg. 10000 = 100.00%, 8012 = 80.12%, 100 = 1.00%)
           *result =CalculateSOC();
+          DEBUGKV("(26) SOC=", *result);
           break;
         }
         case 27:
         {
           // SHUNT_CAL register
           *result =registers.R_SHUNT_CAL;
+          DEBUGKV("(27) R_SHUNT_CAL=", *result);
           break;
         }
         case 28:
         {
           // temperature limit
           *result =(int16_t)TemperatureLimit();
+          DEBUGKV("(28) TemperatureLimit=", *result);
           break;
         }
         case 29:
         {
           BusOverVolt.dblvalue = registers.bus_overvoltage;
           *result =BusOverVolt.word[0];
+          DEBUGKV("(29) BusOverVolt=", BusOverVolt.dblvalue);
           break;
         }
         case 30:
@@ -867,6 +907,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           BusUnderVolt.dblvalue = registers.bus_undervoltage;
           *result =BusUnderVolt.word[0];
+          DEBUGKV("(31) BusUnderVolt=", BusUnderVolt.dblvalue);
           break;
         }
         case 32:
@@ -877,8 +918,8 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         case 33:
         {
           ShuntOverCurrentLimit.dblvalue = registers.bus_overcurrent;
-
           *result =ShuntOverCurrentLimit.word[0];
+          DEBUGKV("(33) ShuntOverCurrentLimit=", ShuntOverCurrentLimit.dblvalue);
           break;
         }
         case 34:
@@ -889,8 +930,8 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         case 35:
         {
           ShuntUnderCurrentLimit.dblvalue = registers.bus_undercurrent;
-
           *result =ShuntUnderCurrentLimit.word[0];
+          DEBUGKV("(35) ShuntUnderCurrentLimit=", ShuntUnderCurrentLimit.dblvalue);
           break;
         }
         case 36:
@@ -903,6 +944,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           PowerLimit.dblvalue = registers.power_limit;
           *result =PowerLimit.word[0];
+          DEBUGKV("(37) PowerLimit=", PowerLimit.dblvalue);
           break;
         }
         case 38:
@@ -915,6 +957,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // Shunt Temperature Coefficient
           *result =registers.R_SHUNT_TEMPCO;
+          DEBUGKV("(39) R_SHUNT_TEMPCO=", *result);
           break;
         }
 
@@ -923,6 +966,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           // INAXXX chip model number (should always be 0x0228)
           uint16_t dieid = 0x0190;
           *result =dieid;
+          DEBUGKV("(40) dieid=", *result);
           break;
         }
 
@@ -932,12 +976,14 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // GITHUB version
           *result =GIT_VERSION_B1;
+          DEBUGKV("(41) GIT_VERSION_B1=", *result);
           break;
         }
         case 42:
         {
           // GITHUB version
           *result =GIT_VERSION_B2;
+          DEBUGKV("(42) GIT_VERSION_B2=", *result);
           break;
         }
 
@@ -946,6 +992,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           // COMPILE_DATE_TIME_EPOCH
           uint32_t x = COMPILE_DATE_TIME_UTC_EPOCH >> 16;
           *result =(uint16_t)x;
+          DEBUGKV("(43) COMPILE_DATE_TIME_UTC_EPOCH=", COMPILE_DATE_TIME_UTC_EPOCH);
           break;
         }
         case 44:
@@ -958,16 +1005,26 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         {
           // Watchdog timer trigger count (like error counter)
           *result =wdt_triggered_count;
+          DEBUGKV("(44) wdt_triggered_count=", *result);
           break;
         }
 
         default:
+        {
+          DEBUGKV("ReadHoldingRegister ", address);
+          DEBUG_PRINTLN("INVALID REGISTER");
+          DEBUG_PRINTLN("");
           return false;
-
+        }
     } // end switch
+
+    DEBUGKV("ReadHoldingRegister ", address);
+    DEBUGKV("ReadHoldingRegister result=", *result);
+    DEBUG_PRINTLN("");
 
     return true;
 }
+
 
 void loop()
 {
@@ -1016,6 +1073,16 @@ void loop()
 
   #ifndef SERIALDEBUG
   modbus_update();
+  #else
+  if( (millis()-lastDebugOutput) > 10000 )
+  {
+    lastDebugOutput = millis();
+    for(uint16_t reg=0; reg<=45; reg++ )
+    {
+      uint16_t result;
+      ReadHoldingRegister(reg, &result);
+    }
+  }
   #endif
 
 
@@ -1035,10 +1102,16 @@ void loop()
     double voltage = BusVoltage();
     double current;
 
+    DEBUGKV("voltage=",voltage);
+    DEBUGKV("Current()=",Current());
+    DEBUGKV("Power()=",Power());
+
     // Now to test if we need to reset SOC to 100% ?
     // Check if voltage is over the fully_charged_voltage and current UNDER tail_current_amps
     if (voltage > registers.fully_charged_voltage && (current=Current()) > 0 && current < registers.tail_current_amps)
     {
+      DEBUG_PRINTLN("-----------SOC RESET--------");
+
       // Battery has reached fully charged so wait for time counter
       soc_reset_counter++;
 
@@ -1063,6 +1136,8 @@ void loop()
       // Voltage or current is out side of monitoring limits, so reset timer count
       soc_reset_counter = 0;
     }
+
+    DEBUGKV("CalculateSOC()=",CalculateSOC());
 
     if (!haveAlert())
     {

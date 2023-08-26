@@ -18,6 +18,7 @@ https://creativecommons.org/licenses/by-nc-sa/2.0/uk/
 
 #include <util/atomic.h>
 #include <ADS1115_lite.h>
+#include "debug.h"
 #include "ads1115.h"
 #include "main.h"
 
@@ -28,11 +29,12 @@ uint32_t lastVoltage_mV = 0;
 int32_t lastCurrent_mA = 0;
 
 uint32_t timeLastCurrentMeasurement = 0;
+uint32_t timeLastVoltageMeasurement = 0;
 
 uint32_t lastCurrentIntegrationMillis = 0;
 int32_t integrated_mA_ms = 0;
 
-struct bitflags current_bitflags;
+bitflags current_bitflags;
 
 extern uint32_t milliamphour_out_lifetime;
 extern uint32_t milliamphour_in_lifetime;
@@ -52,6 +54,9 @@ extern void __attribute__((noreturn)) blinkPattern(uint32_t pattern);
 
 #define ADS1115_MODE_VOLTAGE 1
 #define ADS1115_MODE_CURRENT 2
+
+
+
 /**
  * The sampling mode (current/voltage) we just set. If not the same as ads1115_mode the next result at ISR is thrown away and ads1115_mode is set
  */
@@ -66,6 +71,7 @@ volatile bool ads1115_rdy = false;
 
 ADS1115_lite ads;
 
+void integrate_mAms_to_mAh();
 
 bool i2c_write16bitRegister(const uint8_t address, const uint8_t inareg, const uint16_t data)
 {
@@ -92,7 +98,6 @@ uint32_t ads1115_setup()
     ADC0.CTRLD = ADC_INITDLY_DLY32_gc;
     ADC0.SAMPCTRL = ADC_ACC32;
 
-
     Wire.begin();
     // Change TWI pins to use PA1/PA2 and not PB1/PB0
     Wire.swap(1);
@@ -110,20 +115,18 @@ uint32_t ads1115_setup()
 
     memset( &current_bitflags, 0, sizeof(current_bitflags) );
 
-    // See if the device is connected/soldered on board
-    Wire.beginTransmission(ADS1115address); // transmit to device
-    if (Wire.endTransmission() > 0)
-    {
-        blinkPattern(err_INA228Missing);
-        return err_INA228Missing;
-    }
-
     ads = ADS1115_lite(ADS1115address);
     if( !ads.testConnection() )
     {
-        blinkPattern(err_INA228Reset);
-        return err_INA228Reset;
+        return err_ADS1115_testConnection;
     }
+
+    ads.lowThreshold(0);
+    ads.highThreshold(0xffff);
+
+    ads1115_setupVoltageSampling();
+
+    return 0;
 }
 
 /**
@@ -142,7 +145,7 @@ bool ads1115_setupContinuousAmpereSampling()
     // differential AIN2(input)<->AIN3(Vcc)
     ads.setMux(ADS1115_REG_CONFIG_MUX_DIFF_2_3);
     ads.setSampleRate(ADS1115_REG_CONFIG_DR_128SPS);
-    ads.setGain(ADS1115_REG_CONFIG_PGA_6_144V);
+    ads.setGain(ADS1115_REG_CONFIG_PGA_2_048V);
     if( !ads.triggerContinuous() )
     {
         ads1115_pending_mode = ADS1115_MODE_CURRENT;
@@ -194,6 +197,15 @@ void ads1115_loop()
     ads1115_rdy = false;
 
     int16_t res = ads.getConversionResult();
+    if( res == 0 && !ads.isConversionDone() )
+    {
+        DEBUG_PRINTLN(" ============ ERROR NO CONVERSION RESULT ================ ");
+        DEBUG_PRINT("mode=");
+        DEBUG_PRINT(ads1115_mode);
+        DEBUG_PRINT(" res=");
+        DEBUG_PRINTLN(res);
+        return;
+    }
     if( ads1115_pending_mode != ads1115_mode )
     {
         // throw away one result
@@ -202,6 +214,13 @@ void ads1115_loop()
     }
 
     uint32_t m = millis();
+
+    if( (m-timeLastVoltageMeasurement) > VOLTAGE_INTERVAL_MS && ads1115_mode != ADS1115_MODE_VOLTAGE )
+    {
+        ads1115_setupVoltageSampling();
+        timeLastVoltageMeasurement = m;
+    }
+
 
     if( ads1115_mode == ADS1115_MODE_CURRENT )
     {
@@ -214,33 +233,58 @@ void ads1115_loop()
  * --> with 0A we have 0V differential
  * --> with -200A we have -2.5V differential
 */
-        int32_t ads_mV = 6144 * res / 32767;
-        lastCurrent_mA = ads_mV 
-          * 80;  // (200000mA / 2500 mV)
 
-        // this does even work in case of millis overrun
+    // TODO: read shunt calibration register
+        res += 50;
+
+#if 0
+#ifdef SERIALDEBUG
+        int32_t ads_mV = 2048 * (int32_t)res / 32767;
+        DEBUG_PRINT(" res=");
+        DEBUG_PRINTLN(res);
+        DEBUG_PRINT(" ads_mV=");
+        DEBUG_PRINTLN(ads_mV);
+
+        lastCurrent_mA = ads_mV 
+            * 80;  // (200000mA / 2500 mV)
+        DEBUG_PRINT(" lastCurrent_mA=");
+        DEBUG_PRINTLN(lastCurrent_mA);
+#endif
+#endif
+
+        // mV = 2048 * res / 32767
+        // current_mA = mV * 100mA/mV
+        // ===> current_mA = res * 2048 * 100 / 32767
+        lastCurrent_mA = (int32_t)res * 2048 * 100 / 32768;
+//        DEBUG_PRINT(" lastCurrent_mA=");
+//        DEBUG_PRINTLN(lastCurrent_mA);
+
+        // this DOES even work in case of millis overrun
         // Why? see https://arduino.stackexchange.com/a/12588 
         // in https://arduino.stackexchange.com/questions/12587/how-can-i-handle-the-millis-rollover 
-        // for a length explanation
+        // for a lengthy explanation
         uint32_t timeSinceLast = m - timeLastCurrentMeasurement;
         timeLastCurrentMeasurement = m;
 
         // first integrate to uAs (mA*ms) and below every second into mAh
-        // max is +/- 0x0BEBC200 = 128 * (7.8125ms * +/-200000mA) = 1000ms * +/-200000mA
-        integrated_mA_ms += lastCurrent_mA * timeSinceLast;  
+        // max is +/- 0x0BEBC200 = 128 * (7.8125ms * +/-200000mA) = ~1000ms * +/-200000mA
+        integrated_mA_ms += lastCurrent_mA * timeSinceLast;
 
         double A = Current();
-        current_bitflags.ocurr = A >= registers.bus_overcurrent ? 1 : 0;
-        current_bitflags.ucurr = A <= registers.bus_undercurrent ? 1 : 0;
+        current_bitflags.bits.ocurr = A >= registers.bus_overcurrent ? 1 : 0;
+        current_bitflags.bits.ucurr = A <= registers.bus_undercurrent ? 1 : 0;
     }
     else if( ads1115_mode == ADS1115_MODE_VOLTAGE )
     {
-        uint32_t ads_mV = 2048 * (uint32_t)max(0,res) / 32767;  // voltage cannot be negative and should not be swapped
-        lastVoltage_mV = ads_mV * (2010000+4700) / 4700;   // this barely fits into uint32_t as max would be 4126105600 or 0xF5EF6000
+        int32_t ads_mV = 2048 * (int32_t)res / 32767;  // voltage cannot be negative and should not be swapped
+        ads_mV += 8;  // offset calibration
+
+        lastVoltage_mV = (uint32_t)max(0,ads_mV) * (2010000+4700) / 4700;   // this barely fits into uint32_t as max of this var would be 4126105600 or 0xF5EF6000
 
         double V = BusVoltage();
-        current_bitflags.busol = V >= registers.bus_overvoltage ? 1 : 0;
-        current_bitflags.busul = V <= registers.bus_undervoltage ? 1 : 0;
+        current_bitflags.bits.busol = V >= registers.bus_overvoltage ? 1 : 0;
+        current_bitflags.bits.busul = V <= registers.bus_undervoltage ? 1 : 0;
+        ads1115_setupContinuousAmpereSampling();
     }
     else
     {
@@ -249,7 +293,22 @@ void ads1115_loop()
 
     if( (m-lastCurrentIntegrationMillis) >= 1000 )
     {
-        // make mAh (milliamp HOURS) out of uAs (millamp milliseconds)
+        integrate_mAms_to_mAh();
+    }
+}
+
+
+void integrate_mAms_to_mAh()
+{
+    // make mAh (milliamp HOURS) out of uAs (millamp milliseconds)
+    // this does not make sense below ONE milliamp HOUR
+    if( integrated_mA_ms >= 3600000 )
+    {
+        int32_t remain = integrated_mA_ms % 3600000;
+
+        DEBUG_PRINT("integrate_mAms_to_mAh integrated_mA_ms=");
+        DEBUG_PRINTLN(integrated_mA_ms);
+
         integrated_mA_ms /= 3600000;
         if( integrated_mA_ms > 0 )
         {
@@ -265,12 +324,14 @@ void ads1115_loop()
             daily_milliamphour_in += integrated_mA_ms;
         }
 
-        current_bitflags.pol = Power() > registers.power_limit ? 1 : 0;
+        current_bitflags.bits.pol = Power() > registers.power_limit ? 1 : 0;
 
         double t = AttinyTemperature();
-        current_bitflags.tmpol = t > registers.temp_limit ? 1 : 0;
+        current_bitflags.bits.tmpol = t > registers.temp_limit ? 1 : 0;
 
-        lastCurrentIntegrationMillis = m;
+        lastCurrentIntegrationMillis = millis();
+
+        integrated_mA_ms = remain; // take over the rest
     }
 }
 
@@ -294,9 +355,9 @@ double Power()
 
 
 // read Attiny temp sensor
-// see https://onlinedocs.microchip.com/pr/GUID-C541EA24-5EC3-41E5-9648-79068F9853C0-en-US-3/index.html?GUID-C39DBA19-2081-4EF2-9F86-F64DFC4B4442
 double AttinyTemperature()
 {
+  // see https://onlinedocs.microchip.com/pr/GUID-C541EA24-5EC3-41E5-9648-79068F9853C0-en-US-3/index.html?GUID-C39DBA19-2081-4EF2-9F86-F64DFC4B4442
   int8_t sigrow_offset = SIGROW.TEMPSENSE1;  // Read signed value from signature row
   uint8_t sigrow_gain = SIGROW.TEMPSENSE0;    // Read unsigned value from signature row
   uint16_t adc_reading = 0;   // ADC conversion result with 1.1 V internal reference 
@@ -312,12 +373,12 @@ double AttinyTemperature()
 
 uint16_t bitFlags()
 {
-    return *((uint16_t*)&current_bitflags);
+    return current_bitflags.uint16;
 }
 
 void setBitFlags(uint16_t bitflags)
 {
-    *((uint16_t*)&current_bitflags) = bitflags & SETTABLE_BITFLAGS_MASK;
+    current_bitflags.uint16 = bitflags & SETTABLE_BITFLAGS_MASK;
 }
 
 bool haveAlert()
@@ -328,12 +389,12 @@ bool haveAlert()
 bool relayOn()
 {
     bool relay_state = (
-        current_bitflags.relay_trigger_busol && current_bitflags.busol ||
-        current_bitflags.relay_trigger_busul && current_bitflags.busul ||
-        current_bitflags.relay_trigger_pol && current_bitflags.pol ||
-        current_bitflags.relay_trigger_ocurr && current_bitflags.ocurr ||
-        current_bitflags.relay_trigger_ucurr && current_bitflags.ucurr ||
-        current_bitflags.relay_trigger_tmpol && current_bitflags.tmpol
+        (current_bitflags.bits.relay_trigger_busol && current_bitflags.bits.busol) ||
+        (current_bitflags.bits.relay_trigger_busul && current_bitflags.bits.busul) ||
+        (current_bitflags.bits.relay_trigger_pol && current_bitflags.bits.pol) ||
+        (current_bitflags.bits.relay_trigger_ocurr && current_bitflags.bits.ocurr) ||
+        (current_bitflags.bits.relay_trigger_ucurr && current_bitflags.bits.ucurr) ||
+        (current_bitflags.bits.relay_trigger_tmpol && current_bitflags.bits.tmpol)
     );
     return relay_state;
 }

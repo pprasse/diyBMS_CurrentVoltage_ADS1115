@@ -62,8 +62,6 @@ void GreenLED(bool value);
 #define RELAY_PIN_BITMAP PIN5_bm
 
 // Sequences used to indicate error on RED led
-// Single flash
-const static uint32_t err_INA228Missing = 0xF000000F;
 // Two flashes
 const static uint32_t err_InitialConfigure = 0xF0F0000F;
 // 3 flashes
@@ -75,7 +73,7 @@ const static uint32_t err_WriteADCConfig = 0xCCCCC00F;
 // 6 flashes
 const static uint32_t err_WriteRegisters = 0xCCCCCC0F;
 // 7 flashes (0xAA=4 fast flashes)
-const static uint32_t err_INA228Reset = 0xAAA8000F;
+const static uint32_t err_ADS1115_testConnection = 0xAAA8000F;
 // 8 flashes  10101010101010100000000000001111
 const static uint32_t err_CheckSumErr = 0xAAAA000F;
 // 9 flashes 00101010101010101010000000001111
@@ -122,3 +120,10 @@ struct eeprom_regs
   double tail_current_amps;
   double charge_efficiency_factor;
 };
+
+
+typedef union
+{
+  double dblvalue;
+  uint16_t word[2];
+} DoubleUnionType;

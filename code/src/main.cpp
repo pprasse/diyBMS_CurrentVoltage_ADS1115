@@ -491,13 +491,15 @@ void setup()
 
   ConfigurePorts();
 
-
-  // Serial uses PB2/PB3 and PB0 for XDIR
-  Serial.begin(ModBusBaudRate, MODBUSSERIALCONFIG);
-
   RedLED(false);
   GreenLED(false);
   EnableWatchdog();
+
+  // Serial uses PB2/PB3 and PB0 for XDIR
+  Serial.begin(ModBusBaudRate, MODBUSSERIALCONFIG);
+  // leave XDIR on in every case as we can debug over RS485 using the compile define SERIALDEBUG
+  // 0x01= Enables RS-485 mode with control of an external line driver through a dedicated Transmit Enable (TE) pin.
+  USART0.CTRLA |= USART_RS485_EXT_gc;
 
 
   if (ReadConfigFromEEPROM((uint8_t *)&registers, sizeof(eeprom_regs)) == false)
@@ -548,7 +550,6 @@ void setup()
 
   setBitFlags(registers.bitflags);
 
-
   DEBUG_PRINTLN("NORMAL_BOOTUP");
   if( wdt_triggered )
   {
@@ -595,8 +596,6 @@ void setup()
   wdt_triggered = false;
 
 #ifndef SERIALDEBUG
-  // 0x01= Enables RS-485 mode with control of an external line driver through a dedicated Transmit Enable (TE) pin.
-  USART0.CTRLA |= USART_RS485_EXT_gc;
   modbus_configure(&Serial, ModBusBaudRate);
 #endif
 
@@ -672,6 +671,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
     static DoubleUnionType c;
     static DoubleUnionType p;
 //    static DoubleUnionType shuntv;
+//    static DoubleUnionType t;
 
     static DoubleUnionType BusOverVolt;
     static DoubleUnionType BusUnderVolt;
@@ -759,6 +759,23 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           // Various flags
           *result =bitFlags();
           DEBUGKV("(9) BitFlags=", *result);
+          #ifdef SERIALDEBUG
+            bitflags current_bitflags;
+            current_bitflags.uint16 = bitFlags();
+            DEBUGKV("current_bitflags.bits.busol", current_bitflags.bits.busol);
+            DEBUGKV("current_bitflags.bits.busul", current_bitflags.bits.busul);
+            DEBUGKV("current_bitflags.bits.pol", current_bitflags.bits.pol);
+            DEBUGKV("current_bitflags.bits.ocurr", current_bitflags.bits.ocurr);
+            DEBUGKV("current_bitflags.bits.ucurr", current_bitflags.bits.ucurr);
+            DEBUGKV("current_bitflags.bits.tmpol", current_bitflags.bits.tmpol);
+
+            DEBUGKV("current_bitflags.bits.relay_trigger_busol", current_bitflags.bits.relay_trigger_busol);
+            DEBUGKV("current_bitflags.bits.relay_trigger_busul", current_bitflags.bits.relay_trigger_busul);
+            DEBUGKV("current_bitflags.bits.relay_trigger_pol", current_bitflags.bits.relay_trigger_pol);
+            DEBUGKV("current_bitflags.bits.relay_trigger_ocurr", current_bitflags.bits.relay_trigger_ocurr);
+            DEBUGKV("current_bitflags.bits.relay_trigger_ucurr", current_bitflags.bits.relay_trigger_ucurr);
+            DEBUGKV("current_bitflags.bits.relay_trigger_tmpol", current_bitflags.bits.relay_trigger_tmpol);
+          #endif
           break;
         }
         case 10:
@@ -1008,6 +1025,33 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
           DEBUGKV("(44) wdt_triggered_count=", *result);
           break;
         }
+/*
+        case 46:
+        {
+          *result = (int16_t)(BusVoltage()*1000);
+          break;
+        }
+
+        case 47:
+        {
+          *result = (int16_t)(Current()*1000);
+          break;
+        }
+
+
+        case 48:
+        {
+          t.dblvalue = 1234.54321;
+          *result =t.word[1];
+          break;
+        }
+
+        case 49:
+        {
+          *result =t.word[0];
+          break;
+        }
+*/
 
         default:
         {

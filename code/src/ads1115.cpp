@@ -92,11 +92,15 @@ uint32_t ads1115_setup()
 {
     // for internal temperature measurement
     // https://onlinedocs.microchip.com/pr/GUID-C541EA24-5EC3-41E5-9648-79068F9853C0-en-US-3/index.html?GUID-C39DBA19-2081-4EF2-9F86-F64DFC4B4442
+/*
     VREF.CTRLA = VREF_ADC0REFSEL_1V1_gc;
-    ADC0.CTRLC = ADC_REFSEL_INTREF_gc;
+    ADC0.CTRLC = ADC_REFSEL_INTREF_gc;  // SAMPCAP 0
     ADC0.MUXPOS = ADC_MUXPOS_TEMPSENSE_gc;
     ADC0.CTRLD = ADC_INITDLY_DLY32_gc;
     ADC0.SAMPCTRL = ADC_ACC32;
+*/
+    analogReference(INTERNAL1V1);
+
 
     Wire.begin();
     // Change TWI pins to use PA1/PA2 and not PB1/PB0
@@ -358,15 +362,18 @@ double Power()
 double AttinyTemperature()
 {
   // see https://onlinedocs.microchip.com/pr/GUID-C541EA24-5EC3-41E5-9648-79068F9853C0-en-US-3/index.html?GUID-C39DBA19-2081-4EF2-9F86-F64DFC4B4442
+  // see https://btbm.ch/notes-on-using-the-new-attiny/
   int8_t sigrow_offset = SIGROW.TEMPSENSE1;  // Read signed value from signature row
   uint8_t sigrow_gain = SIGROW.TEMPSENSE0;    // Read unsigned value from signature row
-  uint16_t adc_reading = 0;   // ADC conversion result with 1.1 V internal reference 
+//  uint16_t adc_reading = ADC0.RES;   // ADC conversion result with 1.1 V internal reference 
+  uint16_t adc_reading =  (uint16_t)analogReadEnh(ADC_TEMPERATURE, 12);
+  adc_reading >>= 2;
 
   uint32_t temp = adc_reading - sigrow_offset;
   temp *= sigrow_gain;  // Result might overflow 16 bit variable (10bit+8bit)
   temp += 0x80;               // Add 1/2 to get correct rounding on division below
   temp >>= 8;                 // Divide result to get Kelvin 
-  double dietemp = (double)temp + (double)273.15;
+  double dietemp = (double)temp - (double)273.15;
   return dietemp;
 }
 

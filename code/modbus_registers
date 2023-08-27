@@ -1,0 +1,41 @@
+Voltage 0/f 
+# Voltage_uint16_word0 0/H
+# Voltage_uint16_word1 1/H
+Current 2/f 
+# Current_uint16_word0 2/H
+# Current_uint16_word1 3/H
+milliamphour_out 4/I
+milliamphour_in 6/I
+temperature 8/h
+statusFlags 9/H
+Power 10/f 
+Daily_milliamphour_out 12/I
+Daily_milliamphour_in 14/I
+shunt_resistance 16/f
+shunt_max_current 18/H
+shunt_millivolt 19/H
+battery_capacity 20/H
+Fully_charged_voltage 21/f 
+Tail_current 23/f 
+Charge_efficiency_factor 25/H
+SOC 26/H
+SHUNT_CAL 27/H
+Temp_limit 28/h
+Bus_overvoltage 29/f
+Bus_undervoltage 31/f
+Shunt_overvoltage 33/f
+Shunt_undervoltage 35/f
+Shunt_overpower 37/f
+Shunt_tempcoefficient 39/H
+INAXXX_chip_no 40/H
+GITHUB_VER1 41/H
+GITHUB_VER2 42/H
+COMPILE1 43/H
+COMPILE2 44/H
+WDT_COUNT 45/H
+# voltage_int16 46/h
+# current_int16 47/h
+# Test 48/f 
+# Test_uint16_word0 48/H
+# Test_uint16_word1 49/H
+

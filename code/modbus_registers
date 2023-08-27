@@ -4,13 +4,9 @@ Voltage 0/f
 Current 2/f 
 # Current_uint16_word0 2/H
 # Current_uint16_word1 3/H
-milliamphour_out 4/I
-milliamphour_in 6/I
 temperature 8/h
 statusFlags 9/H
 Power 10/f 
-Daily_milliamphour_out 12/I
-Daily_milliamphour_in 14/I
 shunt_resistance 16/f
 shunt_max_current 18/H
 shunt_millivolt 19/H

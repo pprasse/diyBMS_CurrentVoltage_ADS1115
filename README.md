@@ -1,6 +1,6 @@
 # diyBMS_CurrentVoltage_ADS1115
 
-Isolated current and voltage sensor for up to 850V & 200A based on ADS1115 and attiny1614 with isolated RS485 / MODBUS.
+Isolated current and isolated voltage sensor for up to 850V & 200A based on ADS1115 and attiny1614 with isolated RS485 / MODBUS. (based on https://github.com/stuartpittaway/diyBMS-CurrentShunt)
 
 # Current / Voltage measurement
 
@@ -16,14 +16,38 @@ Coulomb calculation takes place in using an attiny1614 and communication uses is
 
 The project is based on https://github.com/stuartpittaway/diyBMS-CurrentShunt and was created to allow using high voltage batteries for diyBMSv4.
 
+# BOARD
+
+The schematics and board are in the directory KiCad.
+
 # CODE / FIRMWARE
 
-Firmware is currently in development and will be commited once an alpha is available.
+The firmware in the directory code is losely based on Stuard Pittaway's diyBMS CurrentShunt. It uses the same MODBUS RTU registers.
+
+## Coulomb calculation
+
+The charge that goes in and out is calculated by sampling the current 128 times per second using the ADS1115 and measuring the time beween each sample. These are then integrated first to mA*ms (uAs) and then every second to mAh (milliamphours).
+
+## Voltage measurement
+
+The voltage is measured every 1 second as it's irrelevant for charge calculation but interesting for power calculation and over/undervoltage checks.
+
+## MODBUS registers
+
+See [MODBUS Registers.md](./code/MODBUS%20Registers.md)
+
+Maximum compatibililty to diyBMS-CurrentShunt should be maintained to allow using the diyBMS4 ESP32 code unmodified.
+
+Please note that due to compatibility the double registers are in mixed endian (floats compromised of 2 16bit registers in little endian, but individual 16 bit registers are big endian) BUT the 32bit integers are big endian.
+
+Use [read-modbus.sh](./code/read-modbus.sh) ```# code/read-modbus.sh``` to read the modbus registers.
 
 
 # WARNING
 
 This is a DIY product/solution so don’t use this for safety critical systems or in any situation where there could be a risk to life.  
+
+This board was designed to work with high DC voltages which are notoriously dangerous to work with and are a risk to life. Please make sure you have the appropriate knowledge and always use fuses specified for DC.
 
 There is no warranty, it may not work as expected or at all.
 

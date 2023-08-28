@@ -55,7 +55,7 @@ extern void __attribute__((noreturn)) blinkPattern(uint32_t pattern);
 #define ADS1115_MODE_VOLTAGE 1
 #define ADS1115_MODE_CURRENT 2
 
-
+uint32_t mA_per_mV = 100;
 
 /**
  * The sampling mode (current/voltage) we just set. If not the same as ads1115_mode the next result at ISR is thrown away and ads1115_mode is set
@@ -71,6 +71,8 @@ volatile bool ads1115_rdy = false;
 
 ADS1115_lite ads;
 
+bool ads1115_setupContinuousAmpereSampling();
+bool ads1115_setupVoltageSampling();
 void integrate_mAms_to_mAh();
 
 bool i2c_write16bitRegister(const uint8_t address, const uint8_t inareg, const uint16_t data)
@@ -87,6 +89,11 @@ bool i2c_write16bitRegister(const uint8_t address, const uint8_t inareg, const u
   return result == 0;
 }
 
+bool set_mA_per_mV(uint32_t set_mA_per_mV)
+{
+    mA_per_mV = set_mA_per_mV;
+    return true;
+}
 
 uint32_t ads1115_setup()
 {
@@ -116,8 +123,6 @@ uint32_t ads1115_setup()
     }
 
     ads1115_rdy = false;
-
-    memset( &current_bitflags, 0, sizeof(current_bitflags) );
 
     ads = ADS1115_lite(ADS1115address);
     if( !ads.testConnection() )
@@ -248,6 +253,8 @@ void ads1115_loop()
         DEBUG_PRINTLN(res);
         DEBUG_PRINT(" ads_mV=");
         DEBUG_PRINTLN(ads_mV);
+        DEBUG_PRINT(" mA_per_mV=");
+        DEBUG_PRINTLN(mA_per_mV);
 
         lastCurrent_mA = ads_mV 
             * 80;  // (200000mA / 2500 mV)
@@ -259,16 +266,17 @@ void ads1115_loop()
         // mV = 2048 * res / 32767
         // current_mA = mV * 100mA/mV
         // ===> current_mA = res * 2048 * 100 / 32767
-        lastCurrent_mA = (int32_t)res * 2048 * 100 / 32768;
-//        DEBUG_PRINT(" lastCurrent_mA=");
-//        DEBUG_PRINTLN(lastCurrent_mA);
+        lastCurrent_mA = (int32_t)res * 2048 * (int32_t)mA_per_mV / 32768;
 
         // this DOES even work in case of millis overrun
         // Why? see https://arduino.stackexchange.com/a/12588 
         // in https://arduino.stackexchange.com/questions/12587/how-can-i-handle-the-millis-rollover 
         // for a lengthy explanation
         uint32_t timeSinceLast = m - timeLastCurrentMeasurement;
-        timeLastCurrentMeasurement = m;
+        timeLastCurrentMeasurement = m; 
+
+        // TODO: to be exact we should probably set timeSinceLast in the ads1115_isr so we exactly know the time between the last
+        // and current interrupts
 
         // first integrate to uAs (mA*ms) and below every second into mAh
         // max is +/- 0x0BEBC200 = 128 * (7.8125ms * +/-200000mA) = ~1000ms * +/-200000mA
@@ -386,11 +394,12 @@ uint16_t bitFlags()
 void setBitFlags(uint16_t bitflags)
 {
     current_bitflags.uint16 = bitflags & SETTABLE_BITFLAGS_MASK;
+    DEBUGKV("current_bitflags.uint16=", current_bitflags.uint16);
 }
 
 bool haveAlert()
 {
-    return bitFlags() & RELAY_BITS;
+    return bitFlags() & ALERT_BITS;
 }
 
 bool relayOn()

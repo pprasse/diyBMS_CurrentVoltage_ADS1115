@@ -104,6 +104,9 @@ eeprom_regs registers;
 volatile bool wdt_triggered = false;
 volatile uint16_t wdt_triggered_count;
 
+void DefaultConfig();
+
+
 uint16_t CalculateSOC()
 {
   double milliamphour_in_scaled = ((double)milliamphour_in / 100.0) * registers.charge_efficiency_factor;
@@ -266,7 +269,7 @@ void __attribute__((noreturn)) blinkPattern(uint32_t pattern)
   GreenLED(true);
 
   // Finally just hang - this will trigger the watchdog causing a reboot
-  delay(10000);
+  delay(100000);
 }
 
 // Sets SOC by setting "fake" in/out amphour counts
@@ -281,6 +284,49 @@ void SetSOC(uint16_t value)
   // Zero out readings using the offsets
   milliamphour_out_offset = milliamphour_out;
   milliamphour_in_offset = milliamphour_in;
+}
+
+void DefaultConfig()
+{
+    // Clear structure
+    memset(&registers, 0, sizeof(eeprom_regs));
+
+    // Defaults for battery capacity/voltages
+    registers.batterycapacity_amphour = 280;
+    registers.fully_charged_voltage = 3.50 * 16;
+    registers.tail_current_amps = 20;
+    registers.charge_efficiency_factor = 99.5;
+
+    // ACS758 _hall_ sensor produces +2.0V at +200A
+    registers.shunt_max_current = 200;
+    registers.shunt_millivolt = 2000;
+    registers.RSHUNT = (double)registers.shunt_millivolt / ((double)registers.shunt_max_current*1000);
+
+    registers.R_SHUNT_CAL = 0;
+
+    // Not supported and not needed for ACS758
+    registers.R_SHUNT_TEMPCO = 0;
+
+    registers.bus_overcurrent = 100;
+    registers.bus_undercurrent = -100;
+    // 850volt max
+    registers.bus_overvoltage = 57.6;
+    registers.bus_undervoltage = 41.6;
+    registers.temp_limit = 60.0;
+
+    // Default Power limit = 5kW
+    registers.power_limit = 5000.0;
+
+    bitflags defaults_bitflags;
+    defaults_bitflags.uint16 = 0;
+    defaults_bitflags.bits.relay_trigger_pol = 1;
+    defaults_bitflags.bits.relay_trigger_busul = 1;
+    defaults_bitflags.bits.relay_trigger_busol = 1;
+    defaults_bitflags.bits.relay_trigger_ucurr = 1;
+    defaults_bitflags.bits.relay_trigger_ocurr = 1;
+    defaults_bitflags.bits.relay_trigger_tmpol = 1;
+    registers.bitflags.uint16 = defaults_bitflags.uint16;
+    DEBUG_PRINTLN(registers.bitflags.uint16);
 }
 
 void SaveConfig()
@@ -319,7 +365,7 @@ bool SetRegister(uint16_t address, uint16_t value)
         {
           // Bit flags
           setBitFlags(value);
-          registers.bitflags = value;
+          registers.bitflags.uint16 = value;
           break;
         }
 
@@ -339,23 +385,19 @@ bool SetRegister(uint16_t address, uint16_t value)
           break;
         }
 
-
-      /* set not supported for ACS758
         case 18:
         {
           registers.shunt_max_current = value;
-          CalculateLSB();
+          set_mA_per_mV((uint32_t)registers.shunt_max_current*1000/(uint32_t)registers.shunt_millivolt);
           break;
         }
         case 19:
         {
           // Register 40020
           registers.shunt_millivolt = value;
-          CalculateLSB();
+          set_mA_per_mV((uint32_t)registers.shunt_max_current*1000/(uint32_t)registers.shunt_millivolt);
           break;
         }
-      */
-
 
         case 20:
         {
@@ -409,7 +451,6 @@ bool SetRegister(uint16_t address, uint16_t value)
         {
           // Bus Overvoltage (overvoltage protection).
           // Unsigned representation, positive value only. Conversion factor: 3.125 mV/LSB.
-          // BusOverVolt.dblvalue = ((double)(uint16_t)i2c_readword(INA_REGISTER::BOVL)) * 0.003125F;
           newvalue.word[1] = value;
           registers.bus_overvoltage = newvalue.dblvalue;
           break;
@@ -501,6 +542,13 @@ void setup()
   // 0x01= Enables RS-485 mode with control of an external line driver through a dedicated Transmit Enable (TE) pin.
   USART0.CTRLA |= USART_RS485_EXT_gc;
 
+  // Disable RS485 receiver (debug!)
+  #ifdef SERIALDEBUG
+  PORTB.OUTSET = PIN0_bm;
+  PORTB.PIN0CTRL = 0;
+  #endif
+
+
 
   if (ReadConfigFromEEPROM((uint8_t *)&registers, sizeof(eeprom_regs)) == false)
   {
@@ -512,43 +560,16 @@ void setup()
       RedLED(false);
       delay(200);
     }
+    DEBUG_PRINTLN("INVALID_EEPROM");
 
     // EEPROM is invalid, so apply "factory" defaults
+    DefaultConfig();
 
-    // Clear structure
-    memset(&registers, 0, sizeof(eeprom_regs));
-
-    // Defaults for battery capacity/voltages
-    registers.batterycapacity_amphour = 280;
-    registers.fully_charged_voltage = 3.50 * 16;
-    registers.tail_current_amps = 20;
-    registers.charge_efficiency_factor = 99.5;
-
-    // ACS758 _hall_ sensor produces 2.5V at +200A, so 2.5V / 200A
-    registers.shunt_max_current = 200;
-    registers.shunt_millivolt = 2500;
-    registers.RSHUNT = 2.5 / 200;
-
-    // This is not enabled by default
-    // The 16 bit register provides a resolution of 1ppm/°C/LSB
-    registers.R_SHUNT_TEMPCO = 0;
-
-    // Read the defaults from the INA228 chip as a starting point
-    registers.bus_overcurrent = 100;
-    registers.bus_undercurrent = -100;
-    // 85volt max
-    registers.bus_overvoltage = 57.6; // i2c_readword(INA_REGISTER::BOVL);
-    registers.bus_undervoltage = 41.6;
-    registers.temp_limit = 60.0;
-
-    // Default Power limit = 5kW
-    registers.power_limit = 5000.0;
-
-    // By default, trigger relay on all alerts
-    registers.relay_trigger_bitmap = ALL_ALERT_BITS;
+    config_dirty = true;
   }
 
-  setBitFlags(registers.bitflags);
+
+  set_mA_per_mV((uint32_t)registers.shunt_max_current*1000/(uint32_t)registers.shunt_millivolt);
 
   DEBUG_PRINTLN("NORMAL_BOOTUP");
   if( wdt_triggered )
@@ -578,11 +599,6 @@ void setup()
     delay(150);
   }
 
-  // Disable RS485 receiver (debug!)
-  #ifdef SERIALDEBUG
-  PORTB.OUTSET = PIN0_bm;
-  PORTB.PIN0CTRL = 0;
-  #endif
 
   uint32_t status = ads1115_setup();
   DEBUG_PRINT("ads1115_setup result=");
@@ -592,6 +608,11 @@ void setup()
     blinkPattern(status);
     return;
   }
+
+  setBitFlags(registers.bitflags.uint16);
+
+  DEBUGKV("----------- registers.bitflags.uint16=", registers.bitflags.uint16);
+  DEBUGKV("----------- bitFlags()=", bitFlags());
 
   wdt_triggered = false;
 
@@ -1118,6 +1139,7 @@ void loop()
   #ifndef SERIALDEBUG
   modbus_update();
   #else
+  #if 0
   if( (millis()-lastDebugOutput) > 10000 )
   {
     lastDebugOutput = millis();
@@ -1127,6 +1149,7 @@ void loop()
       ReadHoldingRegister(reg, &result);
     }
   }
+  #endif
   #endif
 
 
@@ -1149,6 +1172,8 @@ void loop()
     DEBUGKV("voltage=",voltage);
     DEBUGKV("Current()=",Current());
     DEBUGKV("Power()=",Power());
+    DEBUGKV("registers.bitflags.uint16=", registers.bitflags.uint16);
+    DEBUGKV("bitFlags()=", bitFlags());
 
     // Now to test if we need to reset SOC to 100% ?
     // Check if voltage is over the fully_charged_voltage and current UNDER tail_current_amps

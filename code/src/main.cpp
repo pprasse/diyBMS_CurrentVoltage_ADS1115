@@ -290,6 +290,9 @@ void DefaultConfig()
 {
     // Clear structure
     memset(&registers, 0, sizeof(eeprom_regs));
+    registers.git_version_b1 = GIT_VERSION_B1;
+    registers.git_version_b2 = GIT_VERSION_B2;
+
 
     // Defaults for battery capacity/voltages
     registers.batterycapacity_amphour = 280;
@@ -550,7 +553,9 @@ void setup()
 
 
 
-  if (ReadConfigFromEEPROM((uint8_t *)&registers, sizeof(eeprom_regs)) == false)
+  if (ReadConfigFromEEPROM((uint8_t *)&registers, sizeof(eeprom_regs)) == false || 
+    registers.git_version_b1 != GIT_VERSION_B1 ||
+    registers.git_version_b2 != GIT_VERSION_B2 )
   {
     // Flash RED led 5 times to indicate facory reset
     for (size_t i = 0; i < 5; i++)
@@ -918,7 +923,7 @@ bool ReadHoldingRegister(uint16_t address, uint16_t *result)
         case 27:
         {
           // SHUNT_CAL register
-          *result =registers.R_SHUNT_CAL;
+          *result =(int16_t)registers.R_SHUNT_CAL;
           DEBUGKV("(27) R_SHUNT_CAL=", *result);
           break;
         }

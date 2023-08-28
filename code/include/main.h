@@ -59,9 +59,10 @@ const static uint32_t err_ADS1115_testConnection = 0xAAA8000F;
 // to configure to our prescribed needs.
 struct eeprom_regs
 {
+  uint16_t git_version_b1;
   bitflags bitflags;
   /* @deprecated */
-  uint16_t R_SHUNT_CAL;    // Shunt Calibration
+  int16_t R_SHUNT_CAL;    // Shunt Calibration
   /* @deprecated */
   uint16_t R_SHUNT_TEMPCO; // Shunt Temperature Coefficient
 //  uint16_t R_DIAG_ALRT;
@@ -84,6 +85,8 @@ struct eeprom_regs
   double fully_charged_voltage;
   double tail_current_amps;
   double charge_efficiency_factor;
+
+  uint16_t git_version_b2;
 };
 
 

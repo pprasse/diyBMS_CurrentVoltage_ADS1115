@@ -266,7 +266,7 @@ void ads1115_loop()
         // mV = 2048 * res / 32767
         // current_mA = mV * 100mA/mV
         // ===> current_mA = res * 2048 * 100 / 32767
-        lastCurrent_mA = (int32_t)res * 2048 * (int32_t)mA_per_mV / 32768;
+        lastCurrent_mA = ((int32_t)res + (int32_t)registers.R_SHUNT_CAL) * 2048 * (int32_t)mA_per_mV / 32768;
 
         // this DOES even work in case of millis overrun
         // Why? see https://arduino.stackexchange.com/a/12588 

@@ -15,7 +15,7 @@ Fully_charged_voltage 21/f
 Tail_current 23/f 
 Charge_efficiency_factor 25/H
 SOC 26/H
-SHUNT_CAL 27/H
+SHUNT_CAL 27/h
 Temp_limit 28/h
 Bus_overvoltage 29/f
 Bus_undervoltage 31/f

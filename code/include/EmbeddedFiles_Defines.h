@@ -5,14 +5,14 @@
 #ifndef EmbeddedFiles_Defines_H
 #define EmbeddedFiles_Defines_H
 
-const char GIT_VERSION[] = "15c2e8eb79bb2aa616f4934440142db26cc1e974";
+const char GIT_VERSION[] = "632d646ea2cb748107e0e2f18782bd358c733098";
 
-const uint16_t GIT_VERSION_B1 = 0x6cc1;
+const uint16_t GIT_VERSION_B1 = 0x8c73;
 
-const uint16_t GIT_VERSION_B2 = 0xe974;
+const uint16_t GIT_VERSION_B2 = 0x3098;
 
-const char COMPILE_DATE_TIME_UTC[] = "2023-08-28T16:22Z";
+const char COMPILE_DATE_TIME_UTC[] = "2023-09-22T11:37Z";
 
-const uint32_t COMPILE_DATE_TIME_UTC_EPOCH = 1693239736UL;
+const uint32_t COMPILE_DATE_TIME_UTC_EPOCH = 1695382640UL;
 
 #endif

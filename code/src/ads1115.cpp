@@ -321,13 +321,13 @@ void integrate_mAms_to_mAh()
         integrated_mA_ms /= 3600000;
         if( integrated_mA_ms < 0 )
         {
+            integrated_mA_ms *= -1;
             milliamphour_out += integrated_mA_ms;
             milliamphour_out_lifetime += integrated_mA_ms;
             daily_milliamphour_out += integrated_mA_ms;
         }
         else
         {
-            integrated_mA_ms *= -1;
             milliamphour_in += integrated_mA_ms;
             milliamphour_in_lifetime += integrated_mA_ms;
             daily_milliamphour_in += integrated_mA_ms;

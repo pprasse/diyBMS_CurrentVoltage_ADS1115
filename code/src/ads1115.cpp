@@ -313,8 +313,8 @@ void ads1115_loop()
 void integrate_mAms_to_mAh()
 {
     // make mAh (milliamp HOURS) out of uAs (millamp milliseconds)
-    // this does not make sense below ONE milliamp HOUR
-    if( integrated_mA_ms >= 3600000 )
+    // this does not make sense below 1 milliamp HOUR
+    if( integrated_mA_ms >= 3600000 || integrated_mA_ms <= 3600000 )
     {
         int32_t remain = integrated_mA_ms % 3600000;
 
@@ -322,7 +322,7 @@ void integrate_mAms_to_mAh()
         DEBUG_PRINTLN(integrated_mA_ms);
 
         integrated_mA_ms /= 3600000;
-        if( integrated_mA_ms > 0 )
+        if( integrated_mA_ms < 0 )
         {
             milliamphour_out += integrated_mA_ms;
             milliamphour_out_lifetime += integrated_mA_ms;
